@@ -2,7 +2,7 @@
 
 ![CrowdSense Concept](https://img.shields.io/badge/Status-Live-success) ![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%205%20%7C%20Flutter-blue) ![AI](https://img.shields.io/badge/AI-YOLOv11-orange)
 
-![IOT]_module](assets/IOT.jpeg)
+![IOT_module](assets/IOT.jpeg)
 
 **CrowdSense** is an edge-computing IoT safety system engineered to detect real-time stampedes, critical overcrowding, and fatal bottlenecks. Built as a Final Year BCA Project by Chris Dias, Mevin Quadros, Saieshwar Malkarnekar, Yash Bhandari, and Saheel Shaikh at Rosary College of Commerce & Arts, Goa.
 

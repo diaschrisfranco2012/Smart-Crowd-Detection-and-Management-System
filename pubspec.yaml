@@ -61,6 +61,15 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/smartcrowd.png"
+  adaptive_icon_background: "assets/smartcrowd.png"
+  adaptive_icon_foreground: "assets/smartcrowd.png"
+
 
 dependency_overrides:
   http: ^1.1.0

@@ -1,6 +1,6 @@
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart'; // THE REAL SEARCH ENGINE
+import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,9 +18,10 @@ class _MapPageState extends State<MapPage> {
         'crowd_monitor/zone_A',
       );
 
+  // Defaulted exactly to Rosary College of Commerce & Arts, Navelim, Goa!
   LatLng _currentLocation = const LatLng(
-    15.2625,
-    73.9488,
+    15.2494,
+    73.9458,
   );
   String currentStatus = "Normal";
   String deviceName = "Loading...";
@@ -33,7 +34,7 @@ class _MapPageState extends State<MapPage> {
   final TextEditingController _searchController =
       TextEditingController();
 
-  // --- NEW: Loading flag ---
+  // Loading flag
   bool _isLoading = true;
 
   final String _darkMapStyle = '''
@@ -83,7 +84,7 @@ class _MapPageState extends State<MapPage> {
         );
       }
 
-      // --- NEW: Tell the app we are ready to show the map! ---
+      // Tell the app we are ready to show the map!
       _isLoading = false;
     });
   }
@@ -230,7 +231,7 @@ class _MapPageState extends State<MapPage> {
                       detailsController.text,
                     );
 
-                    // Sync to Firebase
+                    // Sync to Firebase (This is the magic that feeds Twilio!)
                     _dbRef
                         .child('location_details')
                         .update({
@@ -327,7 +328,7 @@ class _MapPageState extends State<MapPage> {
 
   @override
   Widget build(BuildContext context) {
-    // --- NEW: Show a sleek loading screen for a split second until coordinates load ---
+    // Show a sleek loading screen for a split second until coordinates load
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: Color(0xFF121212),
@@ -356,9 +357,8 @@ class _MapPageState extends State<MapPage> {
         children: [
           GoogleMap(
             onMapCreated: _onMapCreated,
-            // style: _darkMapStyle,
-            onLongPress:
-                _showSetupBottomSheet, // Manual map pressing still works!
+            // style: _darkMapStyle, // Uncomment if you want the dark map back!
+            onLongPress: _showSetupBottomSheet,
             initialCameraPosition: CameraPosition(
               target: _currentLocation,
               zoom: 17.5,
@@ -430,12 +430,12 @@ class _MapPageState extends State<MapPage> {
                         ),
                         border: InputBorder.none,
                       ),
-                      textInputAction: TextInputAction
-                          .search, // Changes keyboard enter key to a magnifying glass
+                      textInputAction:
+                          TextInputAction.search,
                       onSubmitted: (value) =>
                           _searchAndNavigate(
                             value,
-                          ), // Triggers the real search!
+                          ),
                     ),
                   ),
                   IconButton(

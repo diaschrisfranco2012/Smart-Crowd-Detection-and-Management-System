@@ -28,11 +28,20 @@ class _LiveFeedPageState
   String riskLevel = "SAFE";
   Color riskColor = Colors.green;
 
+  int warningLimit = 30;
+  int criticalLimit = 50;
+
   bool isHighAlert = false;
   String latestLogKey = "";
 
-  List<FlSpot> chartData = [];
+  // 🛠️ THE CRASH FIX: Initialized with dummy data so the chart doesn't crash on load
+  List<FlSpot> chartData = [
+    const FlSpot(0, 0),
+    const FlSpot(1, 0),
+  ];
   List<Map<dynamic, dynamic>> pastLogs = [];
+  double maxGraphY =
+      60; // Dynamic ceiling to prevent tooltip clipping
 
   @override
   void initState() {
@@ -43,6 +52,16 @@ class _LiveFeedPageState
       final data = event.snapshot.value as Map?;
       if (data != null && mounted) {
         setState(() {
+          // --- FETCH DYNAMIC LIMITS ---
+          if (data['settings'] != null) {
+            warningLimit =
+                data['settings']['warning_limit'] ??
+                30;
+            criticalLimit =
+                data['settings']['critical_limit'] ??
+                50;
+          }
+
           currentCount = data['live_count'] ?? 0;
           String status =
               data['status'] ?? "Normal";
@@ -52,8 +71,11 @@ class _LiveFeedPageState
               status == "MANUAL EMERGENCY") {
             riskLevel = "DANGER";
             riskColor = Colors.redAccent;
-            isHighAlert =
-                true; // The Latch: It stays true until user slides an action
+            isHighAlert = true;
+          } else if (status == "POTENTIAL FALL") {
+            riskLevel = "MEDICAL: FALL DETECTED";
+            riskColor = Colors.purpleAccent;
+            isHighAlert = true;
           } else if (status == "High Density") {
             riskLevel = "WARNING";
             riskColor = Colors.orange;
@@ -69,30 +91,29 @@ class _LiveFeedPageState
             List<MapEntry<dynamic, dynamic>>
             entries = historyMap.entries.toList();
 
-            entries.sort(
-              (a, b) =>
-                  (b.value['timestamp'] ?? 0)
-                      .compareTo(
-                        a.value['timestamp'] ?? 0,
-                      ),
-            );
+            entries.sort((a, b) {
+              return (b.value['timestamp'] ?? 0)
+                  .compareTo(
+                    a.value['timestamp'] ?? 0,
+                  );
+            });
 
             if (entries.isNotEmpty) {
               latestLogKey = entries.first.key
                   .toString();
             }
 
-            pastLogs = entries
-                .map(
-                  (e) =>
-                      Map<dynamic, dynamic>.from(
-                        e.value as Map,
-                      ),
-                )
-                .toList();
+            pastLogs = entries.map((e) {
+              return Map<dynamic, dynamic>.from(
+                e.value as Map,
+              );
+            }).toList();
 
             chartData.clear();
             double xIndex = 0;
+            double currentHighestY = criticalLimit
+                .toDouble(); // Baseline for the ceiling
+
             for (var log in pastLogs.reversed) {
               double peopleCount =
                   (log['people_count'] ?? 0)
@@ -101,11 +122,27 @@ class _LiveFeedPageState
                 FlSpot(xIndex, peopleCount),
               );
               xIndex++;
+
+              // Find the highest point to adjust the graph ceiling
+              if (peopleCount > currentHighestY) {
+                currentHighestY = peopleCount;
+              }
             }
+
+            // Add padding above the highest dot so the tooltip doesn't get cut off
+            maxGraphY = currentHighestY + 15;
           }
 
+          // --- CHART CRASH FIX (Empty DB handling) ---
           if (chartData.isEmpty) {
-            chartData = [const FlSpot(0, 0)];
+            chartData = [
+              const FlSpot(0, 0),
+              const FlSpot(1, 0),
+            ];
+          } else if (chartData.length == 1) {
+            chartData.add(
+              FlSpot(1, chartData.first.y),
+            );
           }
         });
       }
@@ -126,9 +163,10 @@ class _LiveFeedPageState
 
   // --- THE REMOTE KILL SWITCH ---
   void _handleAlarm(bool isTrueAlarm) {
-    String alarmType = isTrueAlarm
-        ? "True"
-        : "False";
+    String alarmType = "False";
+    if (isTrueAlarm) {
+      alarmType = "True";
+    }
 
     if (latestLogKey.isNotEmpty) {
       _dbRef
@@ -143,43 +181,125 @@ class _LiveFeedPageState
     });
 
     setState(() {
-      isHighAlert =
-          false; // Turn off the latch after they slide
+      isHighAlert = false;
     });
   }
 
   void _toggleFullscreen() {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.black,
-        insetPadding: EdgeInsets.zero,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            SizedBox(
-              width: double.infinity,
-              height: double.infinity,
-              child: streamUrl.isNotEmpty
-                  ? Mjpeg(
-                      isLive: true,
-                      stream: streamUrl,
-                      fit: BoxFit.contain,
-                    )
-                  : const Center(
-                      child: Icon(
-                        Icons.videocam_off,
-                        color: Colors.grey,
-                        size: 100,
+      builder: (_) {
+        return Dialog(
+          backgroundColor: Colors.black,
+          insetPadding: EdgeInsets.zero,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: double.infinity,
+                child: streamUrl.isNotEmpty
+                    ? Mjpeg(
+                        isLive: true,
+                        stream: streamUrl,
+                        fit: BoxFit.contain,
+                      )
+                    : const Center(
+                        child: Icon(
+                          Icons.videocam_off,
+                          color: Colors.grey,
+                          size: 100,
+                        ),
                       ),
-                    ),
-            ),
-            Positioned(
-              top: 40,
-              right: 20,
-              child: IconButton(
+              ),
+              Positioned(
+                top: 40,
+                right: 20,
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.fullscreen_exit,
+                    color: Colors.white,
+                    size: 30,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black,
+                        blurRadius: 10,
+                      ),
+                    ],
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // --- THE CLOUDINARY IMAGE VIEWER ---
+  void _showEvidenceImage(String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (_) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Stack(
+            alignment: Alignment.topRight,
+            children: [
+              ClipRRect(
+                borderRadius:
+                    BorderRadius.circular(15),
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                  loadingBuilder:
+                      (
+                        context,
+                        child,
+                        loadingProgress,
+                      ) {
+                        if (loadingProgress ==
+                            null) {
+                          return child;
+                        }
+                        return const SizedBox(
+                          height: 200,
+                          child: Center(
+                            child:
+                                CircularProgressIndicator(
+                                  color: Colors
+                                      .blueAccent,
+                                ),
+                          ),
+                        );
+                      },
+                  errorBuilder:
+                      (
+                        context,
+                        error,
+                        stackTrace,
+                      ) {
+                        return Container(
+                          height: 200,
+                          color: Colors.black,
+                          child: const Center(
+                            child: Text(
+                              "Image no longer available",
+                              style: TextStyle(
+                                color: Colors.red,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                ),
+              ),
+              IconButton(
                 icon: const Icon(
-                  Icons.fullscreen_exit,
+                  Icons.cancel,
                   color: Colors.white,
                   size: 30,
                   shadows: [
@@ -189,13 +309,14 @@ class _LiveFeedPageState
                     ),
                   ],
                 ),
-                onPressed: () =>
-                    Navigator.pop(context),
+                onPressed: () {
+                  Navigator.pop(context);
+                },
               ),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -314,9 +435,10 @@ class _LiveFeedPageState
                             vertical: 8,
                           ),
                       decoration: BoxDecoration(
-                        color: riskColor.withValues(
-                          alpha: 0.15,
-                        ), // Updated to withValues
+                        color: riskColor
+                            .withValues(
+                              alpha: 0.15,
+                            ),
                         borderRadius:
                             BorderRadius.circular(
                               20,
@@ -382,18 +504,20 @@ class _LiveFeedPageState
                               context,
                               error,
                               stack,
-                            ) => const Center(
-                              child: Text(
-                                "Camera Offline or Loading...",
-                                style: TextStyle(
-                                  color:
-                                      Colors.red,
-                                  fontWeight:
-                                      FontWeight
-                                          .bold,
+                            ) {
+                              return const Center(
+                                child: Text(
+                                  "Camera Offline or Loading...",
+                                  style: TextStyle(
+                                    color: Colors
+                                        .red,
+                                    fontWeight:
+                                        FontWeight
+                                            .bold,
+                                  ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                         stream: streamUrl,
                       )
                     else
@@ -427,6 +551,28 @@ class _LiveFeedPageState
               ),
               const SizedBox(height: 20),
 
+              // --- 3. THE SWIPE-TO-ACTION AREA (MOVED UP FOR BETTER UX) ---
+              if (isHighAlert) ...[
+                _buildSwipeAction(
+                  title:
+                      "Slide right to Confirm Emergency",
+                  color: Colors.redAccent,
+                  icon: Icons.warning_rounded,
+                  isConfirm: true,
+                ),
+                const SizedBox(height: 15),
+                _buildSwipeAction(
+                  title:
+                      "Slide right to mark False Alarm",
+                  color: Colors.blueGrey,
+                  icon: Icons.shield,
+                  isConfirm: false,
+                ),
+                const SizedBox(
+                  height: 20,
+                ), // Extra spacing before the graph
+              ],
+
               // Incident Report Card
               AnimatedContainer(
                 duration: const Duration(
@@ -456,7 +602,8 @@ class _LiveFeedPageState
                       scrollDirection:
                           Axis.horizontal,
                       child: SizedBox(
-                        height: 120,
+                        height:
+                            160, // ⬆️ INCREASED HEIGHT FOR TOOLTIPS
                         width:
                             chartData.length > 5
                             ? chartData.length *
@@ -467,6 +614,48 @@ class _LiveFeedPageState
                                   80,
                         child: LineChart(
                           LineChartData(
+                            maxY:
+                                maxGraphY, // Gives tooltip room to breathe
+                            minY: 0,
+
+                            // --- 🛠️ THE TOOLTIP FIX IS HERE ---
+                            lineTouchData: LineTouchData(
+                              touchTooltipData: LineTouchTooltipData(
+                                getTooltipColor:
+                                    (
+                                      touchedSpot,
+                                    ) {
+                                      return Colors
+                                          .grey[800]!;
+                                    },
+                                // REMOVED tooltipRoundedRadius (fl_chart 1.0.0 handles this automatically now)
+                                fitInsideHorizontally:
+                                    true, // Forces box inside left/right edges
+                                fitInsideVertically:
+                                    true, // Forces box inside top/bottom edges
+                                getTooltipItems: (touchedSpots) {
+                                  return touchedSpots.map((
+                                    LineBarSpot
+                                    touchedSpot,
+                                  ) {
+                                    return LineTooltipItem(
+                                      'Count: ${touchedSpot.y.toInt()}',
+                                      const TextStyle(
+                                        color: Colors
+                                            .white,
+                                        fontWeight:
+                                            FontWeight
+                                                .bold,
+                                        fontSize:
+                                            12,
+                                      ),
+                                    );
+                                  }).toList();
+                                },
+                              ),
+                            ),
+
+                            // -----------------------------------
                             gridData:
                                 const FlGridData(
                                   show: true,
@@ -496,19 +685,17 @@ class _LiveFeedPageState
                                       true,
                                   reservedSize:
                                       40,
-                                  getTitlesWidget:
-                                      (
-                                        value,
-                                        meta,
-                                      ) => Text(
-                                        "${value.toInt()}",
-                                        style: const TextStyle(
-                                          color: Colors
-                                              .grey,
-                                          fontSize:
-                                              10,
-                                        ),
+                                  getTitlesWidget: (value, meta) {
+                                    return Text(
+                                      "${value.toInt()}",
+                                      style: const TextStyle(
+                                        color: Colors
+                                            .grey,
+                                        fontSize:
+                                            10,
                                       ),
+                                    );
+                                  },
                                 ),
                               ),
                               bottomTitles:
@@ -528,22 +715,88 @@ class _LiveFeedPageState
                               LineChartBarData(
                                 spots: chartData,
                                 isCurved: true,
-                                color: Colors
-                                    .blueAccent,
-                                barWidth: 2,
+                                barWidth: 3,
+                                isStrokeCapRound:
+                                    true,
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Colors.green,
+                                    Colors.orange,
+                                    Colors
+                                        .redAccent,
+                                  ],
+                                  begin: Alignment
+                                      .bottomCenter,
+                                  end: Alignment
+                                      .topCenter,
+                                ),
                                 belowBarData: BarAreaData(
                                   show: true,
-                                  color: Colors
-                                      .green
-                                      .withValues(
-                                        alpha:
-                                            0.3,
-                                      ),
-                                ), // Updated to withValues
-                                dotData:
-                                    const FlDotData(
-                                      show: true,
-                                    ),
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.green
+                                          .withValues(
+                                            alpha:
+                                                0.05,
+                                          ),
+                                      Colors
+                                          .orange
+                                          .withValues(
+                                            alpha:
+                                                0.2,
+                                          ),
+                                      Colors
+                                          .redAccent
+                                          .withValues(
+                                            alpha:
+                                                0.4,
+                                          ),
+                                    ],
+                                    begin: Alignment
+                                        .bottomCenter,
+                                    end: Alignment
+                                        .topCenter,
+                                  ),
+                                ),
+                                dotData: FlDotData(
+                                  show: true,
+                                  getDotPainter:
+                                      (
+                                        spot,
+                                        percent,
+                                        barData,
+                                        index,
+                                      ) {
+                                        Color
+                                        dotColor =
+                                            Colors
+                                                .green;
+
+                                        if (spot.y >=
+                                            criticalLimit) {
+                                          dotColor =
+                                              Colors.redAccent;
+                                        } else if (spot
+                                                .y >=
+                                            warningLimit) {
+                                          dotColor =
+                                              Colors.orange;
+                                        }
+
+                                        return FlDotCirclePainter(
+                                          radius:
+                                              4,
+                                          color:
+                                              dotColor,
+                                          strokeWidth:
+                                              2,
+                                          strokeColor:
+                                              const Color(
+                                                0xFF121212,
+                                              ),
+                                        );
+                                      },
+                                ),
                               ),
                             ],
                           ),
@@ -558,15 +811,15 @@ class _LiveFeedPageState
                       children: [
                         _buildLegendItem(
                           Colors.green,
-                          "Low Chance",
+                          "Safe (<$warningLimit)",
                         ),
                         _buildLegendItem(
                           Colors.orange,
-                          "High Chance",
+                          "Warning (>$warningLimit)",
                         ),
                         _buildLegendItem(
                           Colors.red,
-                          "Critical Chance",
+                          "Critical (>$criticalLimit)",
                         ),
                       ],
                     ),
@@ -584,7 +837,7 @@ class _LiveFeedPageState
                               FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 15),
                       if (pastLogs.isEmpty)
                         const Text(
                           "No incidents recorded yet.",
@@ -601,21 +854,27 @@ class _LiveFeedPageState
                             );
                         String formattedDate =
                             "${date.day}/${date.month} ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+
                         return _buildLogEntry(
                           formattedDate,
                           log['description'] ??
                               "Alert Triggered",
                           log['type'] ??
                               "Pending",
+                          log['image_url'],
+                          log['people_count'] ??
+                              0,
                         );
                       }),
                     ],
                     const SizedBox(height: 15),
                     GestureDetector(
-                      onTap: () => setState(
-                        () => showDetails =
-                            !showDetails,
-                      ),
+                      onTap: () {
+                        setState(() {
+                          showDetails =
+                              !showDetails;
+                        });
+                      },
                       child: Container(
                         width: double.infinity,
                         padding:
@@ -650,28 +909,6 @@ class _LiveFeedPageState
                 ),
               ),
               const SizedBox(height: 20),
-
-              // --- 3. THE SWIPE-TO-ACTION AREA ---
-              if (isHighAlert)
-                Column(
-                  children: [
-                    _buildSwipeAction(
-                      title:
-                          "Slide right to Confirm Stampede",
-                      color: Colors.redAccent,
-                      icon: Icons.warning_rounded,
-                      isConfirm: true,
-                    ),
-                    const SizedBox(height: 15),
-                    _buildSwipeAction(
-                      title:
-                          "Slide right to mark False Alarm",
-                      color: Colors.blueGrey,
-                      icon: Icons.shield,
-                      isConfirm: false,
-                    ),
-                  ],
-                ),
             ],
           ),
         ),
@@ -701,27 +938,37 @@ class _LiveFeedPageState
     );
   }
 
+  // --- UPGRADED LOG ENTRY BUILDER ---
   Widget _buildLogEntry(
     String date,
     String desc,
     String type,
+    String? imageUrl,
+    int count,
   ) {
-    Color typeColor = Colors.yellow;
+    Color typeColor = Colors.blueGrey;
+
     if (type == "True") {
       typeColor = Colors.redAccent;
     }
     if (type == "False") {
       typeColor = Colors.orange;
     }
+    if (type == "Pending") {
+      typeColor = Colors.yellow;
+    }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
+      padding: const EdgeInsets.only(
+        bottom: 15.0,
+      ),
       child: Row(
-        mainAxisAlignment:
-            MainAxisAlignment.spaceBetween,
+        crossAxisAlignment:
+            CrossAxisAlignment.center,
         children: [
+          // The Date
           SizedBox(
-            width: 70,
+            width: 60,
             child: Text(
               date,
               style: const TextStyle(
@@ -730,27 +977,91 @@ class _LiveFeedPageState
               ),
             ),
           ),
+
+          // The Description AND Headcount Stacked
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: 10.0,
               ),
-              child: Text(
-                desc,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                ),
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    desc,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow:
+                        TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    "Headcount: $count",
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          Text(
-            type,
-            style: TextStyle(
-              color: typeColor,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
+
+          // The Cloudinary Image Viewer Button
+          if (imageUrl != null &&
+              imageUrl.isNotEmpty)
+            GestureDetector(
+              onTap: () {
+                _showEvidenceImage(imageUrl);
+              },
+              child: Container(
+                margin: const EdgeInsets.only(
+                  right: 12,
+                ),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent
+                      .withValues(alpha: 0.15),
+                  borderRadius:
+                      BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.image,
+                  color: Colors.blueAccent,
+                  size: 18,
+                ),
+              ),
+            ),
+
+          // Premium True/False/Pending Badge
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 5,
+            ),
+            decoration: BoxDecoration(
+              color: typeColor.withValues(
+                alpha: 0.1,
+              ),
+              border: Border.all(
+                color: typeColor,
+                width: 1,
+              ),
+              borderRadius: BorderRadius.circular(
+                12,
+              ),
+            ),
+            child: Text(
+              type,
+              style: TextStyle(
+                color: typeColor,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -821,9 +1132,7 @@ class _LiveFeedPageState
                 ),
               ),
             ),
-            const SizedBox(
-              width: 60,
-            ), // Keeps text centered
+            const SizedBox(width: 60),
           ],
         ),
       ),

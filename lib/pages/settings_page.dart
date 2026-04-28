@@ -1,5 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart'; // ADDED FIREBASE DATABASE
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +28,9 @@ class _SettingsPageState
   _criticalController = TextEditingController();
   final TextEditingController _densityController =
       TextEditingController();
+  final TextEditingController
+  _confidenceController =
+      TextEditingController(); // NEW CONFIDENCE CONTROLLER
 
   @override
   void initState() {
@@ -70,12 +73,17 @@ class _SettingsPageState
           _densityController.text =
               data['density_limit']?.toString() ??
               '15';
+          _confidenceController.text =
+              data['ai_confidence']?.toString() ??
+              '0.15'; // LOAD CONFIDENCE
         });
       } else {
         // Defaults if Firebase is empty
         _warningController.text = '30';
         _criticalController.text = '50';
         _densityController.text = '15';
+        _confidenceController.text =
+            '0.15'; // DEFAULT CONFIDENCE
       }
     });
   }
@@ -110,6 +118,11 @@ class _SettingsPageState
       'density_limit':
           int.tryParse(_densityController.text) ??
           15,
+      'ai_confidence':
+          double.tryParse(
+            _confidenceController.text,
+          ) ??
+          0.15, // SAVE CONFIDENCE AS DOUBLE
     });
 
     if (mounted) {
@@ -146,6 +159,8 @@ class _SettingsPageState
     _warningController.dispose();
     _criticalController.dispose();
     _densityController.dispose();
+    _confidenceController
+        .dispose(); // DISPOSE NEW CONTROLLER
     super.dispose();
   }
 
@@ -240,7 +255,7 @@ class _SettingsPageState
                     ),
                     const SizedBox(height: 15),
 
-                    // NEW AI SETTINGS WITH TOOLTIPS
+                    // AI SETTINGS WITH TOOLTIPS
                     _buildLabel(
                       "WARNING HEADCOUNT LIMIT",
                       tooltipMessage:
@@ -273,6 +288,19 @@ class _SettingsPageState
                     _buildTextField(
                       _densityController,
                       "e.g. 15",
+                      isNumber: true,
+                    ),
+                    const SizedBox(height: 20),
+
+                    // NEW CONFIDENCE INPUT
+                    _buildLabel(
+                      "AI CONFIDENCE THRESHOLD",
+                      tooltipMessage:
+                          "Adjust AI sensitivity. Lower (e.g. 0.10) detects more but may cause false positives. Higher (e.g. 0.30) is stricter. (Default: 0.15)",
+                    ),
+                    _buildTextField(
+                      _confidenceController,
+                      "e.g. 0.15",
                       isNumber: true,
                     ),
                     const SizedBox(height: 30),
@@ -365,16 +393,14 @@ class _SettingsPageState
               letterSpacing: 1.0,
             ),
           ),
-          // Only show the info icon if a tooltip message was provided
           if (tooltipMessage != null) ...[
             const SizedBox(width: 8),
             Tooltip(
               message: tooltipMessage,
-              triggerMode: TooltipTriggerMode
-                  .tap, // Opens when tapped on mobile
+              triggerMode: TooltipTriggerMode.tap,
               showDuration: const Duration(
                 seconds: 4,
-              ), // Stays open for 4 seconds
+              ),
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.symmetric(
                 horizontal: 20,
@@ -404,7 +430,7 @@ class _SettingsPageState
     );
   }
 
-  // Helper widget for text fields (Upgraded to support number keyboards)
+  // Helper widget for text fields (Upgraded to support decimal numbers)
   Widget _buildTextField(
     TextEditingController controller,
     String hint, {
@@ -413,8 +439,11 @@ class _SettingsPageState
     return TextField(
       controller: controller,
       style: const TextStyle(color: Colors.white),
+      // UPDATED: Allows decimal points on the mobile number keyboard!
       keyboardType: isNumber
-          ? TextInputType.number
+          ? const TextInputType.numberWithOptions(
+              decimal: true,
+            )
           : TextInputType.text,
       decoration: InputDecoration(
         hintText: hint,

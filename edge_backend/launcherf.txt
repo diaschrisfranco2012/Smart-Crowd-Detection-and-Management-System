@@ -1,0 +1,39 @@
+from gpiozero import Button
+import subprocess
+from signal import pause
+
+# Connected to physical switch on GPIO 23
+button = Button(23, bounce_time=0.5)
+
+server_process = None
+
+def toggle_server():
+    global server_process
+
+    # --- TURN ON ---
+    if server_process is None or server_process.poll() is not None:
+        print("SWITCH PRESSED: Booting up CrowdSense AI...")
+        server_process = subprocess.Popen([
+            "/home/kali/Desktop/TY/.env/bin/python", 
+            "/home/kali/Desktop/TY/pi_serverWc4.py"
+        ])
+
+    # --- TURN OFF ---
+    else:
+        print("SWITCH PRESSED: Shutting down CrowdSense AI (Waiting up to 10s)...")
+        server_process.terminate()
+
+        try:
+            server_process.wait(timeout=10.0)
+            print("Server successfully shut down gracefully!")
+        except subprocess.TimeoutExpired:
+            print("10 seconds passed! Server froze. Forcing pkill...")
+            server_process.kill()
+            subprocess.run(["sudo", "pkill", "-f", "pi_serverWc4.py"])
+
+        server_process = None
+        print("System resting. Waiting for switch on GPIO 23...")
+
+print("Hardware standby mode active. Waiting for switch on GPIO 23...")
+button.when_pressed = toggle_server
+pause()
